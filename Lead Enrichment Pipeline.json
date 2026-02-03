@@ -1,0 +1,199 @@
+{
+  "name": "Lead Enrichment Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-enrichment",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -736,
+        0
+      ],
+      "id": "2f5dd4e9-000e-4204-ae5e-5f58da034e7e",
+      "name": "Incoming Lead",
+      "webhookId": "ca023350-ce11-4f08-a1e5-b44adb62efc0"
+    },
+    {
+      "parameters": {
+        "url": "=https://companyenrichment.abstractapi.com/v2/?api_key=3483b0a800b34f67b624e1e9df6980a1&domain=airbnb.com",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -352,
+        0
+      ],
+      "id": "ac6a6a2f-7667-4d6d-a2ef-02fd1cb3be03",
+      "name": "Email Enrichment (AbstractAPI)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the original email from webhook body\nconst webhookData = $('Incoming Lead').first().json.body;\nconst email = webhookData.email;\n\n// Get company data from Abstract API  \nconst companyData = $('Email Enrichment (AbstractAPI)').first().json;\n\n// Combine everything into enriched lead profile\nconst enrichedLead = {\n  // Original data from webhook\n  email: email,\n  job_title: webhookData.job_title || \"Unknown\",\n  \n  // Company data from Abstract API\n  company_name: companyData.company_name || webhookData.company_name || \"Unknown\",\n  company_domain: companyData.domain || \"\",\n  employee_count: companyData.employee_count || webhookData.company_size || 0,\n  industry: companyData.industry || webhookData.company_industry || \"Unknown\",\n  location: (companyData.city || \"\") + (companyData.city && companyData.country ? \", \" : \"\") + (companyData.country || \"\"),\n  year_founded: companyData.year_founded || null,\n  linkedin_url: companyData.linkedin_url ? \"https://\" + companyData.linkedin_url : \"\",\n  \n  // Metadata\n  enriched_at: new Date().toISOString(),\n  \n  // Lead scoring (100 if company has 1000+ employees)\n  lead_score: (companyData.employee_count || webhookData.company_size || 0) > 1000 ? 100 : 50,\n  is_high_value: (companyData.employee_count || webhookData.company_size || 0) > 1000\n};\n\nreturn [enrichedLead];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        0
+      ],
+      "id": "a5543bec-d012-47f2-b916-f977638c30c1",
+      "name": "Data Normalization (Code)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://webhook.site/0eaab66b-a7e1-4f8d-b78a-54d85cc80424",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"email\": \"={{$json.email}}\",\n  \"full_name\": \"={{$json.full_name}}\",\n  \"first_name\": \"={{$json.first_name}}\",\n  \"last_name\": \"={{$json.last_name}}\",\n  \"job_title\": \"={{$json.job_title}}\",\n  \"company_name\": \"={{$json.company_name}}\",\n  \"company_size\": \"={{$json.company_size}}\",\n  \"company_industry\": \"={{$json.company_industry}}\",\n  \"linkedin\": \"={{$json.linkedin}}\",\n  \"location\": \"={{$json.location}}\",\n  \"enriched_at\": \"={{$json.enriched_at}}\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        608,
+        -16
+      ],
+      "id": "ea5fe397-6917-411d-a2ac-b3095ec8a9fc",
+      "name": "CRM / Webhook 1"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "value": "U0ACLRQ1MUM",
+          "mode": "list",
+          "cachedResultName": "gakanni91"
+        },
+        "text": "=🚀 New High-Value Lead Detected\n\nName: {{$json.full_name}}\nRole: {{$json.job_title}}\nCompany: {{$json.company_name}}\nIndustry: {{$json.company_industry}}\nLocation: {{$json.location}}\n\nLead Score: {{$json.lead_score}}\n\n🔗 LinkedIn: {{$json.linkedin}}\n📧 Email: {{$json.email}}\n",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        400,
+        -16
+      ],
+      "id": "27de7e53-9721-4343-86a4-ddcd686fcca5",
+      "name": "Send a message1",
+      "webhookId": "d11bf591-1393-4ffb-b5d6-c71f370e48da",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "IJP155fJfzwHu9PP",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "07d6932d-c988-4802-ab90-301186a12221",
+              "leftValue": "={{$json.is_high_value}}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        96,
+        0
+      ],
+      "id": "bbc7074e-96eb-4cab-af9f-60d07b048720",
+      "name": "If"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Incoming Lead": {
+      "main": [
+        [
+          {
+            "node": "Email Enrichment (AbstractAPI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Enrichment (AbstractAPI)": {
+      "main": [
+        [
+          {
+            "node": "Data Normalization (Code)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data Normalization (Code)": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message1": {
+      "main": [
+        [
+          {
+            "node": "CRM / Webhook 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "ac7f4e9a-2b4c-4b5c-b149-16430808b0a1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "dfd59ab4dcce2d01fada380889f5cebe54a97829ccbbc32eb0bd6a408c01563e"
+  },
+  "id": "B0R5Ta5UlrHdt7_YnRdAz",
+  "tags": []
+}
