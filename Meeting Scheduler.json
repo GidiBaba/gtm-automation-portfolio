@@ -1,0 +1,238 @@
+{
+  "name": "Meeting Scheduler",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "schedule-meeting",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -384,
+        0
+      ],
+      "id": "69768b66-d093-444c-b1b1-a3c707d64372",
+      "name": "Receive Prospect Data",
+      "webhookId": "775602b1-9e36-44e9-89c3-133d8d1fbd87"
+    },
+    {
+      "parameters": {
+        "resource": "calendar",
+        "calendar": {
+          "__rl": true,
+          "value": "gakanni91@gmail.com",
+          "mode": "list",
+          "cachedResultName": "gakanni91@gmail.com"
+        },
+        "timeMin": "={{new Date().toISOString()}}",
+        "timeMax": "={{new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString()}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        -48,
+        0
+      ],
+      "id": "737cd262-5696-4f48-8e34-0acac91e4667",
+      "name": "Check Busy Times",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "FfamtSg18yIrHnUI",
+          "name": "Google Calendar account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// MEETING SCHEDULER - FIXED VERSION\n// Fixes: Node naming (\"Calender\"), Availability mapping\n// ============================================\n\n// 1. Get prospect info from webhook\nconst webhookData = $('Receive Prospect Data').first().json.body;\nconst prospect = {\n  name: webhookData.prospect_name,\n  email: webhookData.prospect_email,\n  company: webhookData.company,\n  meeting_type: webhookData.meeting_type || 'Meeting'\n};\n\n// 2. Get busy times from Google Calendar (Matching your \"Calender\" spelling)\n// Using .map() to handle the flat structure of the \"Availability\" operation\nconst calendarData = $('Check Busy Times').all();\nconst busyTimes = calendarData\n  .map(item => ({\n    start: item.json.start,\n    end: item.json.end\n  }))\n  .filter(slot => slot.start && slot.end);\n\nconsole.log(`Found ${busyTimes.length} busy time slots`);\n\n// Function to check if a time slot conflicts with busy times\nfunction isSlotAvailable(slotStart, slotEnd) {\n  for (let busy of busyTimes) {\n    const busyStart = new Date(busy.start);\n    const busyEnd = new Date(busy.end);\n    \n    // Check for overlap\n    if (slotStart < busyEnd && slotEnd > busyStart) {\n      return false;\n    }\n  }\n  return true;\n}\n\n// Function to format date for display\nfunction formatSlotDisplay(date) {\n  return date.toLocaleString('en-US', {\n    weekday: 'long',\n    month: 'long',\n    day: 'numeric',\n    hour: 'numeric',\n    minute: '2-digit',\n    hour12: true,\n    timeZone: 'America/New_York'\n  });\n}\n\n// Function to create booking data\nfunction createBookingData(slotDate, prospect) {\n  return Buffer.from(JSON.stringify({\n    datetime: slotDate.toISOString(),\n    prospect_email: prospect.email,\n    prospect_name: prospect.name,\n    company: prospect.company,\n    meeting_type: prospect.meeting_type\n  })).toString('base64');\n}\n\n// Find 3 available 30-minute slots\nconst availableSlots = [];\nconst slotDetails = [];\n\n// Start from next business day in EST\nconst now = new Date();\nconst estNow = new Date(now.toLocaleString(\"en-US\", {timeZone: \"America/New_York\"}));\nlet currentDate = new Date(estNow);\ncurrentDate.setDate(currentDate.getDate() + 1); \ncurrentDate.setHours(9, 0, 0, 0); \n\n// Search for slots within the next 14 days\nconst maxDate = new Date(currentDate);\nmaxDate.setDate(maxDate.getDate() + 14);\n\nwhile (availableSlots.length < 3 && currentDate < maxDate) {\n  // Skip weekends (0 = Sunday, 6 = Saturday)\n  if (currentDate.getDay() === 0 || currentDate.getDay() === 6) {\n    currentDate.setDate(currentDate.getDate() + 1);\n    currentDate.setHours(9, 0, 0, 0);\n    continue;\n  }\n  \n  // Check business hours (9 AM - 5 PM)\n  if (currentDate.getHours() >= 9 && currentDate.getHours() < 17) {\n    const slotEnd = new Date(currentDate.getTime() + 30 * 60000); \n    \n    if (isSlotAvailable(currentDate, slotEnd) && slotEnd.getHours() <= 17) {\n      const slotDate = new Date(currentDate);\n      \n      availableSlots.push(formatSlotDisplay(slotDate));\n      slotDetails.push({\n        datetime: slotDate.toISOString(),\n        display: formatSlotDisplay(slotDate),\n        bookingData: createBookingData(slotDate, prospect)\n      });\n    }\n  }\n  \n  // Move to next 30-min slot\n  currentDate.setMinutes(currentDate.getMinutes() + 30);\n  \n  if (currentDate.getHours() >= 17) {\n    currentDate.setDate(currentDate.getDate() + 1);\n    currentDate.setHours(9, 0, 0, 0);\n  }\n}\n\n// Return the final data\nreturn [{\n  json: {\n    prospect_name: prospect.name,\n    prospect_email: prospect.email,\n    company: prospect.company,\n    meeting_type: prospect.meeting_type,\n    \n    slot1: availableSlots[0] || 'No slots available',\n    slot2: availableSlots[1] || 'No slots available',\n    slot3: availableSlots[2] || 'No slots available',\n    \n    slot1_booking: slotDetails[0]?.bookingData || null,\n    slot2_booking: slotDetails[1]?.bookingData || null,\n    slot3_booking: slotDetails[2]?.bookingData || null,\n    \n    slot1_datetime: slotDetails[0]?.datetime || null,\n    slot2_datetime: slotDetails[1]?.datetime || null,\n    slot3_datetime: slotDetails[2]?.datetime || null,\n    \n    booking_confirmed: false\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "1f8d9b90-f8ca-4394-a16d-26731edc3199",
+      "name": "Calculate Available Slots"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "37b4c351-b881-4486-a230-d5efdf75bc1e",
+              "leftValue": "={{ $('Calculate Available Slots').item.json.booking_confirmed }}",
+              "rightValue": {},
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        944,
+        0
+      ],
+      "id": "2d5d7bb5-6e29-44e5-bded-d274860611bf",
+      "name": "Check If Booked"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.prospect_email }}",
+        "subject": "=Quick question regarding {{ $json.company }} / Meeting Invitation",
+        "message": "=<p>Hi {{ $json.prospect_name }},</p>\n\n<p>I'd love to chat more about how we can help <strong>{{ $json.company }}</strong> with your {{ $json.meeting_type }}.</p>\n\n<p>Please pick a time that works best for you (EST):</p>\n\n<ul>\n  <li><strong>Option 1:</strong> {{ $json.slot1 }} <br> \n      👉 <a href=\"https://gidi.app.n8n.cloud/webhook/book-meeting?data={{ $json.slot1_booking }}\">Click here to book this time</a></li>\n  \n  <br>\n  \n  <li><strong>Option 2:</strong> {{ $json.slot2 }} <br> \n      👉 <a href=\"https://gidi.app.n8n.cloud/webhook/book-meeting?data={{ $json.slot2_booking }}\">Click here to book this time</a></li>\n  \n  <br>\n  \n  <li><strong>Option 3:</strong> {{ $json.slot3 }} <br> \n      👉 <a href=\"https://gidi.app.n8n.cloud/webhook/book-meeting?data={{ $json.slot3_booking }}\">Click here to book this time</a></li>\n</ul>\n\n<p>Best regards,<br>\nGideon</p>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        464,
+        0
+      ],
+      "id": "85ff3529-e126-4472-9ab0-83afea79a5df",
+      "name": "Send Initial Invitation",
+      "webhookId": "a5cdb6e0-8749-473d-8b9d-e3544d26c5a0",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "1HhDsQM53ZOHGH37",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Calculate Available Slots').item.json.prospect_email }}",
+        "subject": "Still interested in chatting?",
+        "message": "=<p>Hi {{ $json.prospect_name }},</p>\n\n<p>I'd love to chat more about how we can help <strong>{{ $json.company }}</strong> with your {{ $json.meeting_type }}.</p>\n\n<p>Please pick a time that works best for you (EST):</p>\n\n<ul>\n  <li><strong>Option 1:</strong> {{ $json.slot1 }} <br> \n      👉 <a href=\"https://gidi.app.n8n.cloud/webhook/book-meeting?data={{ $json.slot1_booking }}\">Click here to book this time</a></li>\n  \n  <br>\n  \n  <li><strong>Option 2:</strong> {{ $json.slot2 }} <br> \n      👉 <a href=\"https://gidi.app.n8n.cloud/webhook/book-meeting?data={{ $json.slot2_booking }}\">Click here to book this time</a></li>\n  \n  <br>\n  \n  <li><strong>Option 3:</strong> {{ $json.slot3 }} <br> \n      👉 <a href=\"https://gidi.app.n8n.cloud/webhook/book-meeting?data={{ $json.slot3_booking }}\">Click here to book this time</a></li>\n</ul>\n\n<p>Best regards,<br>\nGideon</p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1232,
+        16
+      ],
+      "id": "ee53ccf1-c4df-4aa9-aa19-6620cfa06f80",
+      "name": "Send Follow-up Reminder",
+      "webhookId": "68d8f537-bf92-428f-b353-3c6a61e49617",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "1HhDsQM53ZOHGH37",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        704,
+        0
+      ],
+      "id": "8af7a578-c82c-4811-b4c5-a3330388a4ba",
+      "name": "Following Up after two days",
+      "webhookId": "8d4ff23e-5584-407c-94f1-08df20d596e6"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Receive Prospect Data": {
+      "main": [
+        [
+          {
+            "node": "Check Busy Times",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Busy Times": {
+      "main": [
+        [
+          {
+            "node": "Calculate Available Slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Available Slots": {
+      "main": [
+        [
+          {
+            "node": "Send Initial Invitation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Booked": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Send Follow-up Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Initial Invitation": {
+      "main": [
+        [
+          {
+            "node": "Following Up after two days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Following Up after two days": {
+      "main": [
+        [
+          {
+            "node": "Check If Booked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "f221683b-7ef2-4f2c-931a-beeed48edf12",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "dfd59ab4dcce2d01fada380889f5cebe54a97829ccbbc32eb0bd6a408c01563e"
+  },
+  "id": "eA-yjXY2kn4vRIZTMmU3Q",
+  "tags": []
+}

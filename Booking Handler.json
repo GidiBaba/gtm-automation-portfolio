@@ -1,0 +1,164 @@
+{
+  "name": "Booking Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "book-meeting",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -64,
+        0
+      ],
+      "id": "6458ac5e-bcb9-47e5-b927-25e297ecd829",
+      "name": "Capture Slot Choice",
+      "webhookId": "0a7966fd-2f7f-4c03-9be1-20b5b5d11ff4"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=Meeting booked successfully! Check your email for confirmation.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        208,
+        0
+      ],
+      "id": "a48b8f38-0818-4cd5-83a8-04b9779dced7",
+      "name": "Show Success Page1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the booking data from the URL query parameter\nconst queryParams = $('Capture Slot Choice').first().json.query;\n\n// Check if data exists\nif (!queryParams || !queryParams.data) {\n  throw new Error('No booking data found in the URL. Please check your email link.');\n}\n\n// Decode the base64 booking data\nconst bookingDataBase64 = queryParams.data;\nconst bookingDataJson = Buffer.from(bookingDataBase64, 'base64').toString('utf-8');\nconst bookingData = JSON.parse(bookingDataJson);\n\nconsole.log('Decoded booking data:', bookingData);\n\n// Calculate end time (30 minutes after start)\nconst startDate = new Date(bookingData.datetime);\nconst endDate = new Date(startDate.getTime() + 30 * 60000); // 30 minutes\n\n// Return formatted data for the next nodes\nreturn [{\n  json: {\n    // Prospect info\n    prospect_name: bookingData.prospect_name,\n    prospect_email: bookingData.prospect_email,\n    company: bookingData.company,\n    meeting_type: bookingData.meeting_type,\n    \n    // Meeting time details\n    start_datetime: startDate.toISOString(),\n    end_datetime: endDate.toISOString(),\n    \n    // Human-readable display\n    meeting_time_display: startDate.toLocaleString('en-US', {\n      weekday: 'long',\n      month: 'long',\n      day: 'numeric',\n      hour: 'numeric',\n      minute: '2-digit',\n      hour12: true,\n      timeZone: 'America/New_York'\n    })\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        0
+      ],
+      "id": "282642ce-c013-4481-9eda-ed95d08584db",
+      "name": "Decode Booking Details1"
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "gakanni91@gmail.com",
+          "mode": "list",
+          "cachedResultName": "gakanni91@gmail.com"
+        },
+        "start": "={{ $json.start_datetime }}",
+        "end": "={{ $json.end_datetime }}",
+        "additionalFields": {
+          "attendees": [
+            "{{ $json.prospect_email }"
+          ],
+          "description": "=Meeting with {{ $json.prospect_name }} from {{ $json.company }}.",
+          "summary": "={{ $json.meeting_type }} with {{ $json.prospect_name }} ({{ $json.company }})"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        608,
+        0
+      ],
+      "id": "3bee51ae-299c-42ec-8e67-8e9a262e8a66",
+      "name": "Schedule Meeting1",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "FfamtSg18yIrHnUI",
+          "name": "Google Calendar account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.prospect_email }}",
+        "subject": "=✅ Meeting Confirmed - {{ $json.start_display }}",
+        "message": "={{ $json.meeting_type }} with {{ $json.prospect_name }} ({{ $json.company }})",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        0
+      ],
+      "id": "f7a4c12d-20b6-4eb4-8fe0-5b20f2b25bd6",
+      "name": "Send Confirmation1",
+      "webhookId": "48a17a4b-6c34-40c8-9e0c-176ea46695df",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "1HhDsQM53ZOHGH37",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Capture Slot Choice": {
+      "main": [
+        [
+          {
+            "node": "Show Success Page1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Show Success Page1": {
+      "main": [
+        [
+          {
+            "node": "Decode Booking Details1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decode Booking Details1": {
+      "main": [
+        [
+          {
+            "node": "Schedule Meeting1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Meeting1": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "cc3f0a14-3347-401e-b2c0-1f1db72c4d2d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "dfd59ab4dcce2d01fada380889f5cebe54a97829ccbbc32eb0bd6a408c01563e"
+  },
+  "id": "d4sGEW0SqZyHHN79_Gr01",
+  "tags": []
+}
